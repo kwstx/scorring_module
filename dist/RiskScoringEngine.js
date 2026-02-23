@@ -10,6 +10,7 @@ export class RiskScoringEngine {
         reputationalImpact: 0.9,
         cooperativeSystemStability: 1.0,
         predictedComplianceProbability: 1.1,
+        simulationImpact: 1.2,
     };
     /**
      * Adaptive multipliers are nudged by feedback to gradually calibrate behavior over time.
@@ -21,6 +22,7 @@ export class RiskScoringEngine {
         reputationalImpact: 1.0,
         cooperativeSystemStability: 1.0,
         predictedComplianceProbability: 1.0,
+        simulationImpact: 1.0,
     };
     scoreDecision(decision, context, systemState) {
         const dimensionScores = this.computeDimensionScores(decision, context, systemState);
@@ -41,8 +43,11 @@ export class RiskScoringEngine {
         }
         const weightedRisk = riskWeightSum > 0 ? weightedRiskSum / riskWeightSum : 0;
         const weightedCompliance = this.clamp01(dimensionScores.predictedComplianceProbability * weights.predictedComplianceProbability);
-        // Decision score favors high compliance and low risk pressure.
-        const riskPressure = this.clamp01((weightedRisk * 0.7) + ((1 - weightedCompliance) * 0.3));
+        const weightedSimulation = this.clamp01(dimensionScores.simulationImpact * weights.simulationImpact);
+        // Decision score favors high compliance, high simulation impact, and low risk pressure.
+        const riskPressure = this.clamp01((weightedRisk * 0.6) +
+            ((1 - weightedCompliance) * 0.2) +
+            ((1 - weightedSimulation) * 0.2));
         const decisionScore = this.clamp01(1 - riskPressure) * 100;
         return {
             decisionScore: Number(decisionScore.toFixed(2)),
@@ -87,6 +92,7 @@ export class RiskScoringEngine {
         const reputationalImpact = this.computeReputationalImpact(decision, systemState);
         const cooperativeSystemStability = this.computeCooperativeSystemStability(decision, systemState);
         const predictedComplianceProbability = this.computePredictedCompliance(decision, context, systemState);
+        const simulationImpact = this.computeSimulationImpact(decision);
         return {
             operationalRisk,
             regulatoryExposure,
@@ -94,6 +100,7 @@ export class RiskScoringEngine {
             reputationalImpact,
             cooperativeSystemStability,
             predictedComplianceProbability,
+            simulationImpact,
         };
     }
     recalibrateWeights(decision, context, systemState) {
@@ -104,6 +111,7 @@ export class RiskScoringEngine {
             reputationalImpact: this.baseWeights.reputationalImpact,
             cooperativeSystemStability: this.baseWeights.cooperativeSystemStability,
             predictedComplianceProbability: this.baseWeights.predictedComplianceProbability,
+            simulationImpact: this.baseWeights.simulationImpact,
         };
         // System-state sensitivity.
         weights.cooperativeSystemStability *= 1 + (systemState.loadFactor * 0.8);
@@ -151,7 +159,7 @@ export class RiskScoringEngine {
             sum += weights[key];
         }
         if (sum <= 0) {
-            const uniform = 1 / 6;
+            const uniform = 1 / 7;
             return {
                 operationalRisk: uniform,
                 regulatoryExposure: uniform,
@@ -159,6 +167,7 @@ export class RiskScoringEngine {
                 reputationalImpact: uniform,
                 cooperativeSystemStability: uniform,
                 predictedComplianceProbability: uniform,
+                simulationImpact: uniform,
             };
         }
         for (const key of Object.keys(weights)) {
@@ -229,6 +238,18 @@ export class RiskScoringEngine {
         // Higher policy/operational risk lowers predicted compliance probability.
         const predicted = (historicalCompliance * 0.6) + ((1 - policyRisk) * 0.25) + ((1 - operationalRisk) * 0.15);
         return this.clamp01(predicted);
+    }
+    computeSimulationImpact(decision) {
+        const impact = decision.projectedImpact;
+        // Normalize -1..1 metrics to 0..1
+        const taskImpact = (impact.realWorldTaskImpact + 1) / 2;
+        const synergy = impact.predictiveSynergyDensity;
+        const trust = (impact.trustWeightedPropagation + 1) / 2;
+        const evolution = (impact.cooperativeIntelligenceEvolution + 1) / 2;
+        return this.clamp01((taskImpact * 0.4) +
+            (synergy * 0.2) +
+            (trust * 0.2) +
+            (evolution * 0.2));
     }
     clamp01(value) {
         return this.clamp(value, 0, 1);

@@ -1,4 +1,5 @@
 import type { DecisionObject } from './DecisionObject.js';
+import { ImpactSimulationModule } from './ImpactSimulationModule.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -16,6 +17,8 @@ export interface RawAgentAction {
  * and transforming them into structured DecisionObjects for downstream scoring.
  */
 export class DecisionEvaluationFramework {
+    private impactSimulator = new ImpactSimulationModule();
+
     /**
      * Intercepts a raw action and maps its raw data to a structured DecisionObject.
      * This involves parsing intent, calculating resource usage, and projecting impact.
@@ -99,11 +102,21 @@ export class DecisionEvaluationFramework {
     }
 
     private modelProjectedImpact(action: RawAgentAction): DecisionObject['projectedImpact'] {
-        // Placeholder for impact forecasting simulations
+        // Run lightweight forward simulation
+        const simulation = this.impactSimulator.simulate({
+            intent: action.params?.intent || action.action,
+            authorityScope: this.mapAuthorityScope(action),
+            requiredResources: this.calculateRequiredResources(action),
+            policyExposure: this.assessPolicyExposure(action),
+        });
+
         return {
             systemStabilityScore: 0.95,
-            trustWeightedPropagation: 0.0,
-            estimatedRecoveryTimeSeconds: 0
+            trustWeightedPropagation: simulation.trustWeightedInfluencePropagation,
+            estimatedRecoveryTimeSeconds: 0,
+            realWorldTaskImpact: simulation.realWorldTaskImpact,
+            predictiveSynergyDensity: simulation.predictiveSynergyDensity,
+            cooperativeIntelligenceEvolution: simulation.cooperativeIntelligenceEvolution
         };
     }
 }
