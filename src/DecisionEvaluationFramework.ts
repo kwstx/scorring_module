@@ -2,6 +2,7 @@ import type { DecisionObject } from './DecisionObject.js';
 import { ImpactSimulationModule } from './ImpactSimulationModule.js';
 import { ResourceAnalyzer } from './ResourceAnalyzer.js';
 import { ComplianceEstimator } from './ComplianceEstimator.js';
+import { StrategicAlignmentModule } from './StrategicAlignmentModule.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -22,6 +23,7 @@ export class DecisionEvaluationFramework {
     private impactSimulator = new ImpactSimulationModule();
     private resourceAnalyzer = new ResourceAnalyzer();
     private complianceEstimator = new ComplianceEstimator();
+    private strategicAlignmentModule = new StrategicAlignmentModule();
 
     /**
      * Intercepts a raw action and maps its raw data to a structured DecisionObject.
@@ -76,6 +78,9 @@ export class DecisionEvaluationFramework {
                 contextId: rawAction.context?.id || uuidv4(),
             }
         };
+
+        // 7. Evaluate Strategic Alignment
+        decisionObject.strategicAlignment = this.strategicAlignmentModule.evaluate(decisionObject);
 
         return decisionObject;
     }

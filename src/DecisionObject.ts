@@ -1,4 +1,5 @@
 import type { ComplianceForecast } from './ComplianceEstimator.js';
+import type { StrategicAlignmentAssessment } from './StrategicAlignmentModule.js';
 
 /**
  * Represents the standardized input for risk-weighted scoring.
@@ -51,6 +52,9 @@ export interface DecisionObject {
 
     /** Probabilistic compliance forecast across the action lifecycle */
     complianceForecast?: ComplianceForecast;
+
+    /** Strategic alignment assessment against organizational goals, initiatives, and cooperative objectives */
+    strategicAlignment?: StrategicAlignmentAssessment;
 
     /** Per-action resource and economic analysis used by risk scoring */
     resourceAnalysis: {

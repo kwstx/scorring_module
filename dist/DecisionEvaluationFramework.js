@@ -1,6 +1,7 @@
 import { ImpactSimulationModule } from './ImpactSimulationModule.js';
 import { ResourceAnalyzer } from './ResourceAnalyzer.js';
 import { ComplianceEstimator } from './ComplianceEstimator.js';
+import { StrategicAlignmentModule } from './StrategicAlignmentModule.js';
 import { v4 as uuidv4 } from 'uuid';
 /**
  * The DecisionEvaluationFramework is responsible for intercepting proposed actions
@@ -10,6 +11,7 @@ export class DecisionEvaluationFramework {
     impactSimulator = new ImpactSimulationModule();
     resourceAnalyzer = new ResourceAnalyzer();
     complianceEstimator = new ComplianceEstimator();
+    strategicAlignmentModule = new StrategicAlignmentModule();
     /**
      * Intercepts a raw action and maps its raw data to a structured DecisionObject.
      * This involves parsing intent, calculating resource usage, and projecting impact.
@@ -56,6 +58,8 @@ export class DecisionEvaluationFramework {
                 contextId: rawAction.context?.id || uuidv4(),
             }
         };
+        // 7. Evaluate Strategic Alignment
+        decisionObject.strategicAlignment = this.strategicAlignmentModule.evaluate(decisionObject);
         return decisionObject;
     }
     extractIntent(action) {

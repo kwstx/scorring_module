@@ -12,6 +12,7 @@ export class RiskScoringEngine {
         predictedComplianceProbability: 1.1,
         simulationImpact: 1.2,
         opportunityCostProjection: 1.0,
+        strategicMisalignment: 1.15,
     };
     /**
      * Adaptive multipliers are nudged by feedback to gradually calibrate behavior over time.
@@ -25,6 +26,7 @@ export class RiskScoringEngine {
         predictedComplianceProbability: 1.0,
         simulationImpact: 1.0,
         opportunityCostProjection: 1.0,
+        strategicMisalignment: 1.0,
     };
     scoreDecision(decision, context, systemState) {
         const dimensionScores = this.computeDimensionScores(decision, context, systemState);
@@ -36,6 +38,7 @@ export class RiskScoringEngine {
             'financialCost',
             'reputationalImpact',
             'cooperativeSystemStability',
+            'strategicMisalignment',
         ];
         let weightedRiskSum = 0;
         let riskWeightSum = 0;
@@ -47,12 +50,14 @@ export class RiskScoringEngine {
         const weightedCompliance = this.clamp01(dimensionScores.predictedComplianceProbability * weights.predictedComplianceProbability);
         const weightedSimulation = this.clamp01(dimensionScores.simulationImpact * weights.simulationImpact);
         const weightedOpportunity = this.clamp01(dimensionScores.opportunityCostProjection * weights.opportunityCostProjection);
+        const weightedStrategicMisalignment = this.clamp01(dimensionScores.strategicMisalignment * weights.strategicMisalignment);
         // Decision score favors high compliance, high simulation impact,
-        // high opportunity cost of blocking, and low risk pressure.
-        const riskPressure = this.clamp01((weightedRisk * 0.55) +
-            ((1 - weightedCompliance) * 0.15) +
-            ((1 - weightedSimulation) * 0.15) +
-            ((1 - weightedOpportunity) * 0.15));
+        // high opportunity cost of blocking, low risk pressure, and low strategic misalignment.
+        const riskPressure = this.clamp01((weightedRisk * 0.45) +
+            ((1 - weightedCompliance) * 0.13) +
+            ((1 - weightedSimulation) * 0.12) +
+            ((1 - weightedOpportunity) * 0.12) +
+            (weightedStrategicMisalignment * 0.18));
         const decisionScore = this.clamp01(1 - riskPressure) * 100;
         return {
             decisionScore: Number(decisionScore.toFixed(2)),
@@ -64,6 +69,7 @@ export class RiskScoringEngine {
                 weightedCompliance: Number(weightedCompliance.toFixed(4)),
                 weightedSimulation: Number(weightedSimulation.toFixed(4)),
                 weightedOpportunity: Number(weightedOpportunity.toFixed(4)),
+                weightedStrategicMisalignment: Number(weightedStrategicMisalignment.toFixed(4)),
             }
         };
     }
@@ -101,6 +107,7 @@ export class RiskScoringEngine {
         const predictedComplianceProbability = this.computePredictedCompliance(decision, context, systemState);
         const simulationImpact = this.computeSimulationImpact(decision);
         const opportunityCostProjection = this.computeOpportunityCostProjection(decision, context);
+        const strategicMisalignment = this.computeStrategicMisalignment(decision);
         return {
             operationalRisk,
             regulatoryExposure,
@@ -110,6 +117,7 @@ export class RiskScoringEngine {
             predictedComplianceProbability,
             simulationImpact,
             opportunityCostProjection,
+            strategicMisalignment,
         };
     }
     recalibrateWeights(decision, context, systemState) {
@@ -122,6 +130,7 @@ export class RiskScoringEngine {
             predictedComplianceProbability: this.baseWeights.predictedComplianceProbability,
             simulationImpact: this.baseWeights.simulationImpact,
             opportunityCostProjection: this.baseWeights.opportunityCostProjection,
+            strategicMisalignment: this.baseWeights.strategicMisalignment,
         };
         // System-state sensitivity.
         weights.cooperativeSystemStability *= 1 + (systemState.loadFactor * 0.8);
@@ -140,6 +149,7 @@ export class RiskScoringEngine {
         if (sensitivePermission) {
             weights.operationalRisk *= 1.15;
             weights.regulatoryExposure *= 1.1;
+            weights.strategicMisalignment *= 1.1; // Sensitive actions get extra strategic scrutiny
         }
         // Contextual multipliers.
         const budgetPressure = this.clamp01(context.budgetPressure ?? 0);
@@ -171,7 +181,7 @@ export class RiskScoringEngine {
             sum += weights[key];
         }
         if (sum <= 0) {
-            const uniform = 1 / 8;
+            const uniform = 1 / 9;
             return {
                 operationalRisk: uniform,
                 regulatoryExposure: uniform,
@@ -181,6 +191,7 @@ export class RiskScoringEngine {
                 predictedComplianceProbability: uniform,
                 simulationImpact: uniform,
                 opportunityCostProjection: uniform,
+                strategicMisalignment: uniform,
             };
         }
         for (const key of Object.keys(weights)) {
@@ -288,6 +299,26 @@ export class RiskScoringEngine {
             (tradeoffScore * 0.3) +
             (efficiency * 0.2) -
             (budgetPressure * 0.15));
+    }
+    /**
+     * Computes strategic misalignment risk. Uses the StrategicAlignmentModule's penalty
+     * when a strategicAlignment assessment is present on the decision; otherwise
+     * falls back to a lightweight heuristic based on action characteristics.
+     */
+    computeStrategicMisalignment(decision) {
+        // If the StrategicAlignmentModule has already evaluated this decision, use its penalty directly.
+        if (decision.strategicAlignment) {
+            return this.clamp01(decision.strategicAlignment.misalignmentPenalty);
+        }
+        // Fallback heuristic: actions with vague intent and high authority scope
+        // are more likely to drift from strategic objectives.
+        const intentClarity = (decision.intent?.length || 0) > 40 ? 0.1 : 0.35;
+        const permissionBreadth = Math.min(decision.authorityScope.permissions.length / 5, 1) * 0.25;
+        const policyExposurePenalty = decision.policyExposure.length > 0
+            ? decision.policyExposure.reduce((sum, p) => sum + p.exposureLevel, 0) /
+                decision.policyExposure.length * 0.2
+            : 0;
+        return this.clamp01(intentClarity + permissionBreadth + policyExposurePenalty);
     }
     clamp01(value) {
         return this.clamp(value, 0, 1);
