@@ -6,6 +6,14 @@ export class ComplianceEstimator {
     policies = new Map();
     violationPatterns = [];
     authorityGraph = { nodes: [], edges: [] };
+    stageBias = {
+        initiation: 0,
+        execution: 0,
+        persistence: 0,
+        termination: 0,
+    };
+    actionTypeViolationBias = new Map();
+    driftBias = 0;
     constructor() {
         this.loadDefaultPolicies();
         this.loadDefaultPatterns();
@@ -44,20 +52,61 @@ export class ComplianceEstimator {
             timestamp: new Date()
         };
     }
+    getCalibrationSnapshot() {
+        const actionTypeViolationBias = {};
+        for (const [actionType, bias] of this.actionTypeViolationBias.entries()) {
+            actionTypeViolationBias[actionType] = bias;
+        }
+        return {
+            stageBias: { ...this.stageBias },
+            actionTypeViolationBias,
+            driftBias: this.driftBias,
+        };
+    }
+    /**
+     * Applies bounded deltas to probabilistic compliance model parameters.
+     */
+    applyHistoricalCalibration(deltas, learningRate = 0.2) {
+        const lr = this.clamp(learningRate, 0.01, 0.5);
+        if (deltas.stageBias) {
+            for (const key of Object.keys(deltas.stageBias)) {
+                const delta = deltas.stageBias[key];
+                if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                    continue;
+                }
+                this.stageBias[key] = this.clamp(this.stageBias[key] + (delta * lr), -0.35, 0.35);
+            }
+        }
+        if (deltas.actionTypeViolationDeltas) {
+            for (const actionType of Object.keys(deltas.actionTypeViolationDeltas)) {
+                const delta = deltas.actionTypeViolationDeltas[actionType];
+                if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                    continue;
+                }
+                const current = this.actionTypeViolationBias.get(actionType) ?? 0;
+                this.actionTypeViolationBias.set(actionType, this.clamp(current + (delta * lr), -0.4, 0.4));
+            }
+        }
+        if (typeof deltas.driftBiasDelta === 'number' && Number.isFinite(deltas.driftBiasDelta)) {
+            this.driftBias = this.clamp(this.driftBias + (deltas.driftBiasDelta * lr), -0.3, 0.3);
+        }
+    }
     calculateInitiationCompliance(decision) {
         // Initiation compliance depends on authority alignment and initial policy exposure.
         const authorityScore = this.evaluateAuthorityAlignment(decision);
         const exposureScore = 1 - (decision.policyExposure.reduce((acc, p) => acc + p.exposureLevel, 0) / Math.max(1, decision.policyExposure.length));
         // Historical patterns at initiation
         const patternFactor = this.getViolationPatternFactor(decision, 'INITIATION');
-        return this.clamp01((authorityScore * 0.4) + (exposureScore * 0.4) + (patternFactor * 0.2));
+        const base = (authorityScore * 0.4) + (exposureScore * 0.4) + (patternFactor * 0.2);
+        return this.clamp01(base + this.stageBias.initiation);
     }
     calculateExecutionCompliance(decision) {
         // Execution compliance depends on resource criticality and potential for runtime violations.
         const resourcePressure = decision.requiredResources.reduce((acc, r) => acc + (r.criticality === 'HIGH' ? 0.3 : r.criticality === 'MEDIUM' ? 0.1 : 0.05), 0);
         const stabilityFactor = (decision.projectedImpact.systemStabilityScore + 1) / 2;
         const patternFactor = this.getViolationPatternFactor(decision, 'EXECUTION');
-        return this.clamp01(stabilityFactor * (1 - Math.min(resourcePressure, 0.5)) * patternFactor);
+        const base = stabilityFactor * (1 - Math.min(resourcePressure, 0.5)) * patternFactor;
+        return this.clamp01(base + this.stageBias.execution);
     }
     calculatePersistenceCompliance(decision) {
         // Persistence compliance factors in technical debt, state drift, and long-term policy alignment.
@@ -67,14 +116,16 @@ export class ComplianceEstimator {
         }, 0) / Math.max(1, decision.policyExposure.length);
         const trustPropagation = (decision.projectedImpact.trustWeightedPropagation + 1) / 2;
         const patternFactor = this.getViolationPatternFactor(decision, 'PERSISTENCE');
-        return this.clamp01((trustPropagation * 0.7) * (1 - driftFactor) * patternFactor);
+        const base = (trustPropagation * 0.7) * (1 - driftFactor) * patternFactor;
+        return this.clamp01(base + this.stageBias.persistence);
     }
     calculateTerminationCompliance(decision) {
         // Termination compliance relates to clean-up, resource release, and auditability.
         const recoveryFactor = Math.max(0, 1 - (decision.projectedImpact.estimatedRecoveryTimeSeconds / 3600));
         const synergyFactor = decision.projectedImpact.predictiveSynergyDensity;
         const patternFactor = this.getViolationPatternFactor(decision, 'TERMINATION');
-        return this.clamp01((recoveryFactor * 0.5) + (synergyFactor * 0.3) + (patternFactor * 0.2));
+        const base = (recoveryFactor * 0.5) + (synergyFactor * 0.3) + (patternFactor * 0.2);
+        return this.clamp01(base + this.stageBias.termination);
     }
     evaluateAuthorityAlignment(decision) {
         // Check if the agent's delegation chain and permissions match the authority graph nodes.
@@ -90,7 +141,8 @@ export class ComplianceEstimator {
             return 1.0;
         // Multiply safety by inverse of maximum violation probability found
         const maxViolationProb = Math.max(...relevantPatterns.map(p => p.violationProbability));
-        return 1 - maxViolationProb;
+        const actionTypeBias = this.actionTypeViolationBias.get(decision.actionType) ?? 0;
+        return 1 - this.clamp01(maxViolationProb + actionTypeBias);
     }
     calculateOverallProbability(probs) {
         // Weighted geometric mean or simple product
@@ -112,13 +164,17 @@ export class ComplianceEstimator {
         return drivers;
     }
     calculateDriftImpact(decision) {
-        return decision.policyExposure.reduce((acc, p) => {
+        const baseDrift = decision.policyExposure.reduce((acc, p) => {
             const policy = this.policies.get(p.policyId);
             return acc + (policy?.driftFactor ?? 0.05);
         }, 0) / Math.max(1, decision.policyExposure.length);
+        return this.clamp01(baseDrift + this.driftBias);
     }
     clamp01(val) {
         return Math.min(Math.max(val, 0), 1);
+    }
+    clamp(val, min, max) {
+        return Math.min(Math.max(val, min), max);
     }
     loadDefaultPolicies() {
         const defaults = [

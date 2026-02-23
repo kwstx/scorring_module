@@ -1,30 +1,30 @@
 ﻿--- Intercepting and Evaluating Action ---
 [DecisionEvaluationFramework] Intercepting action: FILE_DELETE from Agent agent-alice-001
 [ComplianceEstimator] Estimating lifecycle compliance for decision: undefined
-Action ID: f2646621-ce89-433f-a2b0-3e719a17e0ea
+Action ID: 868a09cc-ab91-4322-8486-45c54b753073
 Intent: Cleanup old audit records to save disk space
 Projected Opportunity Cost of Blocking: $15.69
 
 --- Scoring Decision via RiskScoringEngine ---
-Final Decision Score: 57.37/100
-Risk Pressure: 42.63%
+Final Decision Score: 57.43/100
+Risk Pressure: 42.57%
 
 --- Probabilistic Compliance Lifecycle Forecast ---
-Overall Compliance Probability: 74.08%
+Overall Compliance Probability: 74.54%
 Lifecycle States: {
   "initiation": 0.94,
   "execution": 0.7312,
   "persistence": 0.5586,
-  "termination": 0.7842
+  "termination": 0.8039
 }
-Primary Risk Drivers: High Resource Criticality Pressure, High Policy Drift Potential, Extended Recovery Debt
+Primary Risk Drivers: High Resource Criticality Pressure, High Policy Drift Potential
 Estimated Drift Impact: 0.0500
 Opportunity Projection: 10.69%
-Strategic Misalignment: 51.63%
+Strategic Misalignment: 51.37%
 
 --- Strategic Alignment Assessment ---
-Overall Alignment Score: 50.83%
-Misalignment Penalty: 51.63%
+Overall Alignment Score: 51.09%
+Misalignment Penalty: 51.37%
 
 Goal Alignments:
   [NEUTRAL] Strengthen Data Governance: -0.1235
@@ -41,9 +41,9 @@ Initiative Alignments:
   Audit Trail Modernization: synergy=0.2400, resourceConflict=true
 
 Cooperative Impact:
-  Ecosystem Trust Preservation: impact=0.1592
-  Shared Infrastructure Resilience: impact=0.1499
-  Long-Term Cooperative Intelligence Growth: impact=0.1405
+  Ecosystem Trust Preservation: impact=0.1815
+  Shared Infrastructure Resilience: impact=0.1708
+  Long-Term Cooperative Intelligence Growth: impact=0.1601
 
 Alignment Flags:
   >> CAUTION: Resource conflict detected with initiative "Zero-Trust Security Rollout"
@@ -56,10 +56,99 @@ Dimension Scores:
   "financialCost": 0.05135,
   "reputationalImpact": 0,
   "cooperativeSystemStability": 0.012500000000000011,
-  "predictedComplianceProbability": 0.7408,
-  "simulationImpact": 0.6790140585256712,
+  "predictedComplianceProbability": 0.7454,
+  "simulationImpact": 0.6960194717423941,
   "opportunityCostProjection": 0.10694000000000001,
-  "strategicMisalignment": 0.5163
+  "strategicMisalignment": 0.5137
 }
 
+--- Adaptive Classification ---
+Threshold Band: block <= 36.72, auto-approve >= 66.72
+Signals: {"riskPosture":0.04,"entropyLevel":0.7325,"violationTrend":0.335}
+Shift Magnitude: -7.1413
+Rationale: Risk posture contributed 0.04 to conservatism | Entropy level 0.73 adjusted review-band width | Violation trend signal 0.34 shifted both thresholds | Final adaptive thresholds: block <= 36.72, auto-approve >= 66.72
+
 [RESULT] ACTION FLAGGED FOR REVIEW (STRATEGIC MISALIGNMENT DETECTED)
+
+
+========================================
+  HUMAN OVERRIDE INTERFACE WORKFLOW
+========================================
+
+--- Scenario 1: Creating Override Request for Flagged Decision ---
+[HumanOverrideInterface] Override request d1d85cbd-360e-404a-aa81-21bff1b6244c created for decision 868a09cc-ab91-4322-8486-45c54b753073
+Request ID: d1d85cbd-360e-404a-aa81-21bff1b6244c
+Decision ID: 868a09cc-ab91-4322-8486-45c54b753073
+Flagged At: 2026-02-23T13:18:45.013Z
+Pending Requests: 1
+
+--- Scenario 2: Authorization Check (Insufficient Clearance) ---
+Authorization denied: Stakeholder "James Rivera" (clearance: REVIEWER) does not meet the required clearance level: APPROVER
+
+--- Scenario 3: Senior Reviewer Rejects the Decision ---
+[HumanOverrideInterface έΗΤ RiskScoringEngine] Fed calibration feedback: compliance=0.224, stability=true, costOverrun=1.660, lr=0.0368
+[HumanOverrideInterface έΗΤ ClassificationEngine] Recorded outcome: violated=true, severity=0.860
+[HumanOverrideInterface] Override b9d22a1f-4219-47df-9752-f03f918f49de submitted by "Dr. Sarah Chen" | Verdict: REJECTED | Decision: 868a09cc-ab91-4322-8486-45c54b753073 | Confidence: 92.0% | Review Time: 0.1s
+
+Override Record ID: b9d22a1f-4219-47df-9752-f03f918f49de
+Verdict: REJECTED
+Stakeholder: Dr. Sarah Chen (Senior Security Architect)
+Confidence: 92.0%
+Annotations: 3
+Review Duration: 0.1s
+
+Dimension Disagreements:
+  regulatoryExposure: UNDERWEIGHTED (-0.60) έΑΦ Active compliance review period was not factored into the automated assessment
+  operationalRisk: OVERWEIGHTED (0.30) έΑΦ Disk space is not critically low; operational urgency is overstated
+
+Annotations:
+  [POLICY_REFERENCE] Data Retention Policy DRP-2024-07 requires audit logs to be preserved for a minimum of 7 years.
+    References: DRP-2024-07, SOX-302
+  [RISK_OBSERVATION] Deleting audit.log during an active compliance review cycle would constitute evidence tampering.
+    References: COMPLIANCE-REVIEW-Q1-2026
+  [HISTORICAL_PRECEDENT] Similar automated cleanup in 2025-Q3 resulted in regulatory inquiry (INC-20250918).
+    References: INC-20250918, POST-MORTEM-2025-09
+
+
+--- Scenario 4: Compliance Officer Approves a Different Action ---
+[DecisionEvaluationFramework] Intercepting action: DATA_EXPORT from Agent agent-bob-002
+[ComplianceEstimator] Estimating lifecycle compliance for decision: undefined
+Second Decision Score: 57.23/100
+Classification: flag-for-review
+[HumanOverrideInterface] Override request afb324d0-337f-4e35-8da9-72fc48abda23 created for decision 509860f5-555a-436f-8196-9881795952b7
+[HumanOverrideInterface έΗΤ RiskScoringEngine] Fed calibration feedback: compliance=0.982, stability=false, costOverrun=0.600, lr=0.0352
+[HumanOverrideInterface έΗΤ ClassificationEngine] Recorded outcome: violated=false, severity=0.000
+[HumanOverrideInterface] Override f594ba92-aaf1-45d2-94a2-1f324d515912 submitted by "Maria Kowalski" | Verdict: APPROVED | Decision: 509860f5-555a-436f-8196-9881795952b7 | Confidence: 88.0% | Review Time: 0.0s
+
+Override Record ID: f594ba92-aaf1-45d2-94a2-1f324d515912
+Verdict: APPROVED
+Stakeholder: Maria Kowalski (Chief Compliance Officer)
+Confidence: 88.0%
+Conditional Requirements:
+  έΑλ Enable export watermarking on output file
+  έΑλ Log all access to the exported file for 30 days
+  έΑλ Delete exported file after board meeting concludes
+
+
+--- Override Adaptation Signal ---
+Sample Size: 2
+Approval Rate: 50.0%
+Rejection Rate: 50.0%
+Average Confidence: 90.0%
+Average Review Duration: 0.1s
+Conditional Approval Rate: 100.0%
+Weighted Dimension Disagreements:
+  regulatoryExposure: -0.6000 (system underweighted)
+  operationalRisk: 0.3000 (system overweighted)
+  financialCost: 0.4000 (system overweighted)
+
+--- Verdict Distribution ---
+  APPROVED: 1
+  REJECTED: 1
+  ESCALATED: 0
+
+--- Post-Override Scoring Recalibration ---
+Original Decision Score:     57.43/100
+Recalibrated Decision Score: 57.47/100
+Score Shift: 0.04 points
+(Override feedback has adjusted the engine's adaptive multipliers)

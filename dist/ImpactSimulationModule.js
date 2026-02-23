@@ -3,6 +3,36 @@
  * the downstream consequences of a proposed action.
  */
 export class ImpactSimulationModule {
+    assumptions = {
+        taskCriticalityWeight: 0.6,
+        taskIntentClarityWeight: 0.4,
+        excessiveResourcePenalty: 0.3,
+        synergyPermissionWeight: 0.1,
+        synergyLayerWeight: 0.2,
+        trustBase: 0.5,
+        trustPolicyExposurePenaltyWeight: 0.2,
+        intelligenceSynergyWeight: 0.5,
+        intelligenceStabilityWeight: 0.5,
+        impactfulPermissionBoost: 1.2,
+        noiseAmplitude: 0.1,
+    };
+    getAssumptionsSnapshot() {
+        return { ...this.assumptions };
+    }
+    /**
+     * Applies bounded deltas to simulation assumptions.
+     */
+    applyAssumptionDeltas(deltas, learningRate = 0.2) {
+        const lr = this.clamp(learningRate, 0.01, 0.5);
+        for (const key of Object.keys(deltas)) {
+            const delta = deltas[key];
+            if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                continue;
+            }
+            const updated = this.assumptions[key] + (delta * lr);
+            this.assumptions[key] = this.clampAssumption(key, updated);
+        }
+    }
     /**
      * Executes a series of forward-looking simulations for a given decision.
      */
@@ -28,10 +58,11 @@ export class ImpactSimulationModule {
             : 0.5;
         // If intent is vague, task impact is likely lower or more risky.
         const intentClarity = (decision.intent?.length || 0) > 20 ? 0.8 : 0.4;
-        let impact = (avgCriticality * 0.6) + (intentClarity * 0.4);
+        let impact = (avgCriticality * this.assumptions.taskCriticalityWeight) +
+            (intentClarity * this.assumptions.taskIntentClarityWeight);
         // Penalize for excessive resource use without clear goal
         if (totalResources > 1000 && intentClarity < 0.5) {
-            impact -= 0.3;
+            impact -= this.assumptions.excessiveResourcePenalty;
         }
         return Math.min(Math.max(impact, -1.0), 1.0);
     }
@@ -39,31 +70,46 @@ export class ImpactSimulationModule {
         // Synergy density increases when permissions are multi-layered (suggesting integration).
         const permissions = decision.authorityScope?.permissions?.length || 0;
         const layers = decision.authorityScope?.layer ? 1 : 0;
-        let synergy = (permissions * 0.1) + (layers * 0.2);
+        let synergy = (permissions * this.assumptions.synergyPermissionWeight) +
+            (layers * this.assumptions.synergyLayerWeight);
         // Random "system noise" to simulate dynamic environments
-        synergy += (Math.random() * 0.2) - 0.1;
+        synergy += (Math.random() * (this.assumptions.noiseAmplitude * 2)) - this.assumptions.noiseAmplitude;
         return Math.min(Math.max(synergy, 0.0), 1.0);
     }
     simulateTrustPropagation(decision) {
         // Trust propagates better if there's a clear delegation chain.
         const delegationLength = decision.authorityScope?.delegationChain?.length || 0;
-        const baseTrust = 0.5;
+        const baseTrust = this.assumptions.trustBase;
         let propagation = baseTrust + (delegationLength * 0.1);
         // High policy exposure levels reduce trust propagation.
         const totalExposure = decision.policyExposure?.reduce((acc, p) => acc + p.exposureLevel, 0) || 0;
-        propagation -= (totalExposure * 0.2);
+        propagation -= (totalExposure * this.assumptions.trustPolicyExposurePenaltyWeight);
         return Math.min(Math.max(propagation, -1.0), 1.0);
     }
     simulateIntelligenceEvolution(decision, synergy) {
         // Cooperative intelligence evolves when synergy is high and stability is maintained.
         const stability = decision.projectedImpact?.systemStabilityScore ?? 0.5;
-        let evolution = (synergy * 0.5) + (stability * 0.5);
+        let evolution = (synergy * this.assumptions.intelligenceSynergyWeight) +
+            (stability * this.assumptions.intelligenceStabilityWeight);
         // If the action is a "WRITE" or "ADMIN" action, it has more potential to change 
         // the system's "intelligence" (state/policies), both positively and negatively.
         const isImpactfulPermission = decision.authorityScope?.permissions?.some(p => ['WRITE', 'ADMIN', 'EXECUTE'].includes(p.toUpperCase()));
         if (isImpactfulPermission) {
-            evolution *= 1.2;
+            evolution *= this.assumptions.impactfulPermissionBoost;
         }
         return Math.min(Math.max(evolution, -1.0), 1.0);
+    }
+    clampAssumption(key, value) {
+        switch (key) {
+            case 'noiseAmplitude':
+                return this.clamp(value, 0, 0.3);
+            case 'impactfulPermissionBoost':
+                return this.clamp(value, 0.8, 1.8);
+            default:
+                return this.clamp(value, 0, 1.5);
+        }
+    }
+    clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
     }
 }

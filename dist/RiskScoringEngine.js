@@ -28,6 +28,23 @@ export class RiskScoringEngine {
         opportunityCostProjection: 1.0,
         strategicMisalignment: 1.0,
     };
+    getAdaptiveMultipliersSnapshot() {
+        return { ...this.adaptiveMultipliers };
+    }
+    /**
+     * Applies aggregated historical calibration deltas to adaptive multipliers.
+     * Positive delta increases emphasis on the corresponding dimension.
+     */
+    applyAdaptiveMultiplierDeltas(deltas, learningRate = 0.15) {
+        const lr = this.clamp(learningRate, 0.01, 0.5);
+        for (const key of Object.keys(deltas)) {
+            const delta = deltas[key];
+            if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                continue;
+            }
+            this.adaptiveMultipliers[key] = this.clamp(this.adaptiveMultipliers[key] + (delta * lr), 0.5, 2.5);
+        }
+    }
     scoreDecision(decision, context, systemState) {
         const dimensionScores = this.computeDimensionScores(decision, context, systemState);
         const weights = this.recalibrateWeights(decision, context, systemState);

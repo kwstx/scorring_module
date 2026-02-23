@@ -1,5 +1,6 @@
 import type { ComplianceForecast } from './ComplianceEstimator.js';
 import type { StrategicAlignmentAssessment } from './StrategicAlignmentModule.js';
+import type { OverrideRecord } from './HumanOverrideInterface.js';
 
 /**
  * Represents the standardized input for risk-weighted scoring.
@@ -66,6 +67,9 @@ export interface DecisionObject {
         economicEfficiencyScore: number; // 0.0 to 1.0
     };
 
+    /** Human override record, populated when a stakeholder approves, rejects, or escalates this decision */
+    humanOverride?: OverrideRecord;
+
     /** Metadata regarding the source agent */
     metadata: {
         agentId: string;
@@ -73,3 +77,4 @@ export interface DecisionObject {
         contextId: string;
     };
 }
+

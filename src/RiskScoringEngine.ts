@@ -1,6 +1,6 @@
 import type { DecisionObject } from './DecisionObject.js';
 
-type RiskDimension =
+export type RiskDimension =
     | 'operationalRisk'
     | 'regulatoryExposure'
     | 'financialCost'
@@ -115,6 +115,34 @@ export class RiskScoringEngine {
         opportunityCostProjection: 1.0,
         strategicMisalignment: 1.0,
     };
+
+    public getAdaptiveMultipliersSnapshot(): Record<RiskDimension, number> {
+        return { ...this.adaptiveMultipliers };
+    }
+
+    /**
+     * Applies aggregated historical calibration deltas to adaptive multipliers.
+     * Positive delta increases emphasis on the corresponding dimension.
+     */
+    public applyAdaptiveMultiplierDeltas(
+        deltas: Partial<Record<RiskDimension, number>>,
+        learningRate: number = 0.15
+    ): void {
+        const lr = this.clamp(learningRate, 0.01, 0.5);
+
+        for (const key of Object.keys(deltas) as RiskDimension[]) {
+            const delta = deltas[key];
+            if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                continue;
+            }
+
+            this.adaptiveMultipliers[key] = this.clamp(
+                this.adaptiveMultipliers[key] + (delta * lr),
+                0.5,
+                2.5
+            );
+        }
+    }
 
     public scoreDecision(
         decision: DecisionObject,

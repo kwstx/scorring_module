@@ -35,6 +35,14 @@ export interface ComplianceForecast {
     timestamp: Date;
 }
 
+export type ComplianceStageKey = 'initiation' | 'execution' | 'persistence' | 'termination';
+
+export interface ComplianceCalibrationDeltas {
+    stageBias?: Partial<Record<ComplianceStageKey, number>>;
+    actionTypeViolationDeltas?: Record<string, number>;
+    driftBiasDelta?: number;
+}
+
 /**
  * ComplianceEstimator calculates the probability that an action will remain compliant
  * across its full lifecycle, from initiation to eventual termination.
@@ -43,6 +51,14 @@ export class ComplianceEstimator {
     private policies: Map<string, PolicySchema> = new Map();
     private violationPatterns: HistoricalViolationPattern[] = [];
     private authorityGraph: AuthorityGraph = { nodes: [], edges: [] };
+    private stageBias: Record<ComplianceStageKey, number> = {
+        initiation: 0,
+        execution: 0,
+        persistence: 0,
+        termination: 0,
+    };
+    private actionTypeViolationBias: Map<string, number> = new Map();
+    private driftBias = 0;
 
     constructor() {
         this.loadDefaultPolicies();
@@ -89,6 +105,59 @@ export class ComplianceEstimator {
         };
     }
 
+    public getCalibrationSnapshot(): {
+        stageBias: Record<ComplianceStageKey, number>;
+        actionTypeViolationBias: Record<string, number>;
+        driftBias: number;
+    } {
+        const actionTypeViolationBias: Record<string, number> = {};
+        for (const [actionType, bias] of this.actionTypeViolationBias.entries()) {
+            actionTypeViolationBias[actionType] = bias;
+        }
+
+        return {
+            stageBias: { ...this.stageBias },
+            actionTypeViolationBias,
+            driftBias: this.driftBias,
+        };
+    }
+
+    /**
+     * Applies bounded deltas to probabilistic compliance model parameters.
+     */
+    public applyHistoricalCalibration(
+        deltas: ComplianceCalibrationDeltas,
+        learningRate: number = 0.2
+    ): void {
+        const lr = this.clamp(learningRate, 0.01, 0.5);
+
+        if (deltas.stageBias) {
+            for (const key of Object.keys(deltas.stageBias) as ComplianceStageKey[]) {
+                const delta = deltas.stageBias[key];
+                if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                    continue;
+                }
+                this.stageBias[key] = this.clamp(this.stageBias[key] + (delta * lr), -0.35, 0.35);
+            }
+        }
+
+        if (deltas.actionTypeViolationDeltas) {
+            for (const actionType of Object.keys(deltas.actionTypeViolationDeltas)) {
+                const delta = deltas.actionTypeViolationDeltas[actionType];
+                if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+                    continue;
+                }
+
+                const current = this.actionTypeViolationBias.get(actionType) ?? 0;
+                this.actionTypeViolationBias.set(actionType, this.clamp(current + (delta * lr), -0.4, 0.4));
+            }
+        }
+
+        if (typeof deltas.driftBiasDelta === 'number' && Number.isFinite(deltas.driftBiasDelta)) {
+            this.driftBias = this.clamp(this.driftBias + (deltas.driftBiasDelta * lr), -0.3, 0.3);
+        }
+    }
+
     private calculateInitiationCompliance(decision: DecisionObject): number {
         // Initiation compliance depends on authority alignment and initial policy exposure.
         const authorityScore = this.evaluateAuthorityAlignment(decision);
@@ -97,7 +166,8 @@ export class ComplianceEstimator {
         // Historical patterns at initiation
         const patternFactor = this.getViolationPatternFactor(decision, 'INITIATION');
 
-        return this.clamp01((authorityScore * 0.4) + (exposureScore * 0.4) + (patternFactor * 0.2));
+        const base = (authorityScore * 0.4) + (exposureScore * 0.4) + (patternFactor * 0.2);
+        return this.clamp01(base + this.stageBias.initiation);
     }
 
     private calculateExecutionCompliance(decision: DecisionObject): number {
@@ -108,7 +178,8 @@ export class ComplianceEstimator {
 
         const patternFactor = this.getViolationPatternFactor(decision, 'EXECUTION');
 
-        return this.clamp01(stabilityFactor * (1 - Math.min(resourcePressure, 0.5)) * patternFactor);
+        const base = stabilityFactor * (1 - Math.min(resourcePressure, 0.5)) * patternFactor;
+        return this.clamp01(base + this.stageBias.execution);
     }
 
     private calculatePersistenceCompliance(decision: DecisionObject): number {
@@ -121,7 +192,8 @@ export class ComplianceEstimator {
         const trustPropagation = (decision.projectedImpact.trustWeightedPropagation + 1) / 2;
         const patternFactor = this.getViolationPatternFactor(decision, 'PERSISTENCE');
 
-        return this.clamp01((trustPropagation * 0.7) * (1 - driftFactor) * patternFactor);
+        const base = (trustPropagation * 0.7) * (1 - driftFactor) * patternFactor;
+        return this.clamp01(base + this.stageBias.persistence);
     }
 
     private calculateTerminationCompliance(decision: DecisionObject): number {
@@ -131,7 +203,8 @@ export class ComplianceEstimator {
 
         const patternFactor = this.getViolationPatternFactor(decision, 'TERMINATION');
 
-        return this.clamp01((recoveryFactor * 0.5) + (synergyFactor * 0.3) + (patternFactor * 0.2));
+        const base = (recoveryFactor * 0.5) + (synergyFactor * 0.3) + (patternFactor * 0.2);
+        return this.clamp01(base + this.stageBias.termination);
     }
 
     private evaluateAuthorityAlignment(decision: DecisionObject): number {
@@ -153,7 +226,8 @@ export class ComplianceEstimator {
 
         // Multiply safety by inverse of maximum violation probability found
         const maxViolationProb = Math.max(...relevantPatterns.map(p => p.violationProbability));
-        return 1 - maxViolationProb;
+        const actionTypeBias = this.actionTypeViolationBias.get(decision.actionType) ?? 0;
+        return 1 - this.clamp01(maxViolationProb + actionTypeBias);
     }
 
     private calculateOverallProbability(probs: ComplianceForecast['lifecycleStageProbabilities']): number {
@@ -176,14 +250,19 @@ export class ComplianceEstimator {
     }
 
     private calculateDriftImpact(decision: DecisionObject): number {
-        return decision.policyExposure.reduce((acc, p) => {
+        const baseDrift = decision.policyExposure.reduce((acc, p) => {
             const policy = this.policies.get(p.policyId);
             return acc + (policy?.driftFactor ?? 0.05);
         }, 0) / Math.max(1, decision.policyExposure.length);
+        return this.clamp01(baseDrift + this.driftBias);
     }
 
     private clamp01(val: number): number {
         return Math.min(Math.max(val, 0), 1);
+    }
+
+    private clamp(val: number, min: number, max: number): number {
+        return Math.min(Math.max(val, min), max);
     }
 
     private loadDefaultPolicies(): void {
