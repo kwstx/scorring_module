@@ -29,6 +29,11 @@ export interface RiskScoringContext {
      * Historical compliance rate for the relevant agent or context (0.0 to 1.0).
      */
     historicalComplianceRate?: number;
+    /**
+     * Preemptive risk lift from historical recurrence detection (0.0 to 1.0).
+     * Higher values proactively increase risk pressure before harm occurs.
+     */
+    preemptiveRiskLift?: number;
 }
 
 export interface CooperativeSystemState {
@@ -70,6 +75,8 @@ export interface RiskScoreBreakdown {
     weightedSimulation: number;
     weightedOpportunity: number;
     weightedStrategicMisalignment: number;
+    preemptiveRiskLiftApplied: number;
+    preemptiveRiskPressureDelta: number;
 }
 
 export interface RiskScoreResult {
@@ -182,16 +189,19 @@ export class RiskScoringEngine {
         const weightedStrategicMisalignment = this.clamp01(
             dimensionScores.strategicMisalignment * weights.strategicMisalignment
         );
+        const preemptiveRiskLiftApplied = this.clamp01(context.preemptiveRiskLift ?? 0);
 
         // Decision score favors high compliance, high simulation impact,
         // high opportunity cost of blocking, low risk pressure, and low strategic misalignment.
-        const riskPressure = this.clamp01(
+        const baseRiskPressure = this.clamp01(
             (weightedRisk * 0.45) +
             ((1 - weightedCompliance) * 0.13) +
             ((1 - weightedSimulation) * 0.12) +
             ((1 - weightedOpportunity) * 0.12) +
             (weightedStrategicMisalignment * 0.18)
         );
+        const preemptiveRiskPressureDelta = preemptiveRiskLiftApplied * 0.55;
+        const riskPressure = this.clamp01(baseRiskPressure + preemptiveRiskPressureDelta);
         const decisionScore = this.clamp01(1 - riskPressure) * 100;
 
         return {
@@ -205,6 +215,8 @@ export class RiskScoringEngine {
                 weightedSimulation: Number(weightedSimulation.toFixed(4)),
                 weightedOpportunity: Number(weightedOpportunity.toFixed(4)),
                 weightedStrategicMisalignment: Number(weightedStrategicMisalignment.toFixed(4)),
+                preemptiveRiskLiftApplied: Number(preemptiveRiskLiftApplied.toFixed(4)),
+                preemptiveRiskPressureDelta: Number(preemptiveRiskPressureDelta.toFixed(4)),
             }
         };
     }

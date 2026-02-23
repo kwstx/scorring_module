@@ -6,12 +6,20 @@ import { ClassificationEngine } from './ClassificationEngine.js';
 import { HumanOverrideInterface } from './HumanOverrideInterface.js';
 import type { Stakeholder, OverrideRationale, ContextualAnnotation } from './HumanOverrideInterface.js';
 import { ThresholdOptimizationEngine } from './ThresholdOptimizationEngine.js';
+import { PreemptiveDetectionLayer } from './PreemptiveDetectionLayer.js';
 
 async function main() {
     const framework = new DecisionEvaluationFramework();
     const scoringEngine = new RiskScoringEngine();
     const classificationEngine = new ClassificationEngine(60);
     const overrideInterface = new HumanOverrideInterface(100, 0.04);
+    const preemptiveLayer = new PreemptiveDetectionLayer({
+        minSamplesForActivation: 3,
+        minFailureRateForActivation: 0.4,
+        maxRiskLift: 0.35,
+        reviewEscalationLiftThreshold: 0.14,
+        blockEscalationLiftThreshold: 0.3,
+    });
 
     // Imagine an agent proposing to delete a sensitive log file
     const rawAction: RawAgentAction = {
@@ -34,11 +42,30 @@ async function main() {
     console.log(`Intent: ${decisionObject.intent}`);
     console.log(`Projected Opportunity Cost of Blocking: $${decisionObject.resourceAnalysis.projectedOpportunityCostOfBlockingUSD}`);
 
+    // Seed recurring negative historical outcomes for similar decisions.
+    for (let i = 0; i < 5; i++) {
+        preemptiveLayer.recordOutcome({
+            decisionId: `historic-file-delete-${i}`,
+            actionType: decisionObject.actionType,
+            metadata: decisionObject.metadata,
+            authorityScope: decisionObject.authorityScope,
+            policyExposure: decisionObject.policyExposure,
+            complianceFailure: i % 2 === 0,
+            downstreamFailure: true,
+            severity: 0.72 + (i * 0.04),
+            timestamp: new Date(Date.now() - ((i + 1) * 86_400_000)),
+        });
+    }
+
+    const preemptiveAssessment = preemptiveLayer.assess(decisionObject);
+    const escalationRecommendation = preemptiveLayer.recommendClassificationEscalation(preemptiveAssessment);
+
     // Scoring context
     const context: RiskScoringContext = {
         budgetPressure: 0.2,
         dataSensitivity: 0.8, // Sensitive log file!
-        historicalComplianceRate: 0.95
+        historicalComplianceRate: 0.95,
+        preemptiveRiskLift: preemptiveAssessment.riskLift,
     };
 
     // Current system state
@@ -54,6 +81,14 @@ async function main() {
 
     console.log(`Final Decision Score: ${scoreResult.decisionScore}/100`);
     console.log(`Risk Pressure: ${(scoreResult.riskPressure * 100).toFixed(2)}%`);
+    console.log(`Preemptive Risk Lift: ${(preemptiveAssessment.riskLift * 100).toFixed(2)}%`);
+    if (escalationRecommendation.recommendedState) {
+        console.log(`Preemptive Escalation Recommendation: ${escalationRecommendation.recommendedState}`);
+        console.log(`Escalation Reason: ${escalationRecommendation.escalationReason}`);
+    }
+    for (const reason of preemptiveAssessment.rationale) {
+        console.log(`Preemptive Rationale: ${reason}`);
+    }
 
     if (decisionObject.complianceForecast) {
         console.log('\n--- Probabilistic Compliance Lifecycle Forecast ---');
@@ -124,6 +159,7 @@ async function main() {
 
     const classification = classificationEngine.classify(scoreResult, {
         riskPosture: postureFromSystemState,
+        preemptiveRiskLift: preemptiveAssessment.riskLift,
     });
 
     console.log('\n--- Adaptive Classification ---');
@@ -321,9 +357,18 @@ async function main() {
     };
 
     const decision2 = await framework.evaluateAction(secondAction);
-    const score2 = scoringEngine.scoreDecision(decision2, context, systemState);
+    const preemptiveAssessment2 = preemptiveLayer.assess(decision2);
+    const score2 = scoringEngine.scoreDecision(
+        decision2,
+        {
+            ...context,
+            preemptiveRiskLift: preemptiveAssessment2.riskLift,
+        },
+        systemState
+    );
     const classification2 = classificationEngine.classify(score2, {
         riskPosture: postureFromSystemState,
+        preemptiveRiskLift: preemptiveAssessment2.riskLift,
     });
 
     console.log(`Second Decision Score: ${score2.decisionScore}/100`);

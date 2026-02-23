@@ -26,6 +26,19 @@ export interface ClassificationContext {
      * Optional violation trend override. If omitted, history-based trend is used.
      */
     recentViolationTrend?: ViolationTrendSnapshot;
+    /**
+     * Preemptive risk lift produced by historical recurrence detection (0.0 to 1.0).
+     * Used to escalate classification before concrete harm occurs.
+     */
+    preemptiveRiskLift?: number;
+    /**
+     * Optional threshold where preemptive lift upgrades auto-approve to review.
+     */
+    preemptiveEscalationThreshold?: number;
+    /**
+     * Optional threshold where preemptive lift upgrades any state to block.
+     */
+    preemptiveBlockThreshold?: number;
 }
 
 export interface ClassificationResult {
@@ -109,7 +122,16 @@ export class ClassificationEngine {
             blockMax,
         });
 
-        const state = this.resolveState(scoreResult.decisionScore, thresholdBand);
+        const preemptiveRiskLift = this.clamp01(context.preemptiveRiskLift ?? 0);
+        const preemptiveEscalationThreshold = this.clamp01(context.preemptiveEscalationThreshold ?? 0.14);
+        const preemptiveBlockThreshold = this.clamp01(context.preemptiveBlockThreshold ?? 0.3);
+        const baseState = this.resolveState(scoreResult.decisionScore, thresholdBand);
+        const state = this.applyPreemptiveEscalation(
+            baseState,
+            preemptiveRiskLift,
+            preemptiveEscalationThreshold,
+            preemptiveBlockThreshold
+        );
 
         const rationale = [
             `Risk posture contributed ${riskPosture.toFixed(2)} to conservatism`,
@@ -117,6 +139,11 @@ export class ClassificationEngine {
             `Violation trend signal ${violationTrendSignal.toFixed(2)} shifted both thresholds`,
             `Final adaptive thresholds: block <= ${thresholdBand.blockMax.toFixed(2)}, auto-approve >= ${thresholdBand.autoApproveMin.toFixed(2)}`
         ];
+        if (state !== baseState) {
+            rationale.push(
+                `Preemptive detection escalated state from ${baseState} to ${state} (lift=${preemptiveRiskLift.toFixed(2)})`
+            );
+        }
 
         return {
             state,
@@ -158,6 +185,23 @@ export class ClassificationEngine {
             return 'block';
         }
         return 'flag-for-review';
+    }
+
+    private applyPreemptiveEscalation(
+        baseState: ClassificationState,
+        preemptiveRiskLift: number,
+        escalationThreshold: number,
+        blockThreshold: number
+    ): ClassificationState {
+        if (preemptiveRiskLift >= blockThreshold) {
+            return 'block';
+        }
+
+        if (preemptiveRiskLift >= escalationThreshold && baseState === 'auto-approve') {
+            return 'flag-for-review';
+        }
+
+        return baseState;
     }
 
     private normalizeThresholdBand(band: ThresholdBand): ThresholdBand {

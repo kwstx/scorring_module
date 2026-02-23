@@ -1,4 +1,5 @@
 import type { DecisionObject } from './DecisionObject.js';
+import type { ClassificationState } from './ClassificationEngine.js';
 
 export interface DownstreamOutcomeRecord {
     decisionId: string;
@@ -11,6 +12,11 @@ export interface DownstreamOutcomeRecord {
         layer: string;
         permissions: string[];
     };
+    policyExposure?: {
+        policyId: string;
+        exposureLevel: number;
+        potentialViolations: string[];
+    }[];
     complianceFailure: boolean;
     downstreamFailure: boolean;
     severity: number; // 0.0 to 1.0
@@ -31,11 +37,18 @@ export interface PreemptiveRiskAssessment {
     rationale: string[];
 }
 
+export interface PreemptiveClassificationRecommendation {
+    recommendedState: ClassificationState | null;
+    escalationReason: string;
+}
+
 export interface PreemptiveDetectionLayerOptions {
     maxHistorySize?: number;
     minSamplesForActivation?: number;
     minFailureRateForActivation?: number;
     maxRiskLift?: number;
+    reviewEscalationLiftThreshold?: number;
+    blockEscalationLiftThreshold?: number;
 }
 
 interface PatternAggregate {
@@ -55,6 +68,8 @@ export class PreemptiveDetectionLayer {
     private readonly minSamplesForActivation: number;
     private readonly minFailureRateForActivation: number;
     private readonly maxRiskLift: number;
+    private readonly reviewEscalationLiftThreshold: number;
+    private readonly blockEscalationLiftThreshold: number;
     private history: DownstreamOutcomeRecord[] = [];
     private patternMap: Map<string, PatternAggregate> = new Map();
 
@@ -63,6 +78,8 @@ export class PreemptiveDetectionLayer {
         this.minSamplesForActivation = options.minSamplesForActivation ?? 3;
         this.minFailureRateForActivation = options.minFailureRateForActivation ?? 0.45;
         this.maxRiskLift = options.maxRiskLift ?? 0.35;
+        this.reviewEscalationLiftThreshold = options.reviewEscalationLiftThreshold ?? 0.14;
+        this.blockEscalationLiftThreshold = options.blockEscalationLiftThreshold ?? 0.3;
     }
 
     public recordOutcome(record: DownstreamOutcomeRecord): void {
@@ -78,6 +95,28 @@ export class PreemptiveDetectionLayer {
         }
 
         this.recomputePatterns();
+    }
+
+    public recordDecisionOutcome(
+        decision: DecisionObject,
+        outcome: {
+            complianceFailure: boolean;
+            downstreamFailure: boolean;
+            severity: number;
+            timestamp?: Date;
+        }
+    ): void {
+        this.recordOutcome({
+            decisionId: decision.id,
+            actionType: decision.actionType,
+            metadata: decision.metadata,
+            authorityScope: decision.authorityScope,
+            policyExposure: decision.policyExposure,
+            complianceFailure: outcome.complianceFailure,
+            downstreamFailure: outcome.downstreamFailure,
+            severity: outcome.severity,
+            timestamp: outcome.timestamp ?? new Date(),
+        });
     }
 
     public assess(decision: DecisionObject): PreemptiveRiskAssessment {
@@ -139,6 +178,29 @@ export class PreemptiveDetectionLayer {
                 };
             })
             .sort((a, b) => b.preemptiveRiskLift - a.preemptiveRiskLift);
+    }
+
+    public recommendClassificationEscalation(
+        assessment: PreemptiveRiskAssessment
+    ): PreemptiveClassificationRecommendation {
+        if (assessment.riskLift >= this.blockEscalationLiftThreshold) {
+            return {
+                recommendedState: 'block',
+                escalationReason: `Recurring high-failure pattern exceeds block threshold (${assessment.riskLift.toFixed(2)})`,
+            };
+        }
+
+        if (assessment.riskLift >= this.reviewEscalationLiftThreshold) {
+            return {
+                recommendedState: 'flag-for-review',
+                escalationReason: `Recurring risk pattern exceeds review threshold (${assessment.riskLift.toFixed(2)})`,
+            };
+        }
+
+        return {
+            recommendedState: null,
+            escalationReason: 'No preemptive escalation required',
+        };
     }
 
     private recomputePatterns(): void {
@@ -209,12 +271,15 @@ export class PreemptiveDetectionLayer {
         const layer = decision.authorityScope.layer.toUpperCase();
         const agentType = (decision.metadata.agentType || 'UNKNOWN').toUpperCase();
         const permissions = this.normalizePermissions(decision.authorityScope.permissions);
+        const exposureBand = this.getExposureBand(decision.policyExposure);
 
         return [
             `ACTION:${actionType}`,
             `ACTION:${actionType}|LAYER:${layer}`,
             `ACTION:${actionType}|AGENT:${agentType}`,
             `ACTION:${actionType}|PERMS:${permissions}`,
+            `ACTION:${actionType}|LAYER:${layer}|AGENT:${agentType}`,
+            `ACTION:${actionType}|EXPOSURE:${exposureBand}`,
         ];
     }
 
@@ -223,13 +288,35 @@ export class PreemptiveDetectionLayer {
         const layer = record.authorityScope.layer.toUpperCase();
         const agentType = (record.metadata.agentType || 'UNKNOWN').toUpperCase();
         const permissions = this.normalizePermissions(record.authorityScope.permissions);
+        const exposureBand = this.getExposureBand(record.policyExposure ?? []);
 
         return [
             `ACTION:${actionType}`,
             `ACTION:${actionType}|LAYER:${layer}`,
             `ACTION:${actionType}|AGENT:${agentType}`,
             `ACTION:${actionType}|PERMS:${permissions}`,
+            `ACTION:${actionType}|LAYER:${layer}|AGENT:${agentType}`,
+            `ACTION:${actionType}|EXPOSURE:${exposureBand}`,
         ];
+    }
+
+    private getExposureBand(
+        policyExposure: Array<{ exposureLevel: number }>
+    ): 'LOW' | 'MEDIUM' | 'HIGH' {
+        if (policyExposure.length === 0) {
+            return 'LOW';
+        }
+
+        const averageExposure =
+            policyExposure.reduce((sum, exposure) => sum + this.clamp01(exposure.exposureLevel), 0) /
+            policyExposure.length;
+        if (averageExposure >= 0.66) {
+            return 'HIGH';
+        }
+        if (averageExposure >= 0.33) {
+            return 'MEDIUM';
+        }
+        return 'LOW';
     }
 
     private normalizePermissions(permissions: string[]): string {
